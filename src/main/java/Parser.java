@@ -6,24 +6,45 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.SneakyThrows;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- *
+ * JSON parser to compare two JSON objects and produce new with differences.
+ * Returns empty JSON if both inputs are equal.
  */
 public class Parser {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
+    /**
+     * Main method. Executes {@link #compareMeta(JsonNode, JsonNode)} and {@link #compareCandidates(JsonNode, JsonNode)}
+     * @param before  before JsonNode
+     * @param after  after JsonNode
+     * @return  comparing result. Empty Json if inputs are equal
+     */
     @SneakyThrows
     public JsonNode parse(JsonNode before, JsonNode after) {
         ObjectNode node = mapper.createObjectNode();
+        if(before.equals(after)){
+            return node;
+        }
         node.put("meta", compareMeta(before, after));
         node.put("candidates", compareCandidates(before, after));
         return node;
     }
 
+    /**
+     * Method to compare "meta" block of inputs
+     * @param before before JsonNode
+     * @param after after JsonNode
+     * @return Array of Jsons with differences in pattern "field: name of field , before: old data, after: new data"
+     */
     @SneakyThrows
     private ArrayNode compareMeta(JsonNode before, JsonNode after){
         Map<String, Object> beforeMeta = mapper.convertValue(before.get("meta")
@@ -35,6 +56,10 @@ public class Parser {
         for(String key : beforeMeta.keySet()){
             Object a = beforeMeta.get(key);
             Object b = afterMeta.get(key);
+            if("startTime".equals(key) || "endTime".equals(key)){
+                a = convertDate(a.toString());
+                b = convertDate(b.toString());
+            }
             if(!a.equals(b)){
                 ObjectNode object = mapper.createObjectNode();
                 object.put("field", key)
@@ -46,6 +71,16 @@ public class Parser {
         return arrayNode;
     }
 
+    /**
+     * Method to compare "candidates" block. Uses {@link #compareCommon(JsonNode, JsonNode)},
+     * {@link #findAdded(JsonNode, JsonNode)}, {@link #findRemoved(JsonNode, JsonNode)}
+     * @param before before JsonNode
+     * @param after afterJsonNode
+     * @return Array of Jsons with differences in pattern: "edited": [array of objects that were edited],
+     * "added"" [id's of added objects],
+     * "removed": [id's of removed objects]
+     *
+     */
     @SneakyThrows
     private JsonNode compareCandidates(JsonNode before, JsonNode after){
         ObjectNode node = mapper.createObjectNode();
@@ -55,6 +90,12 @@ public class Parser {
         return node;
     }
 
+    /**
+     * Method to find id's of added objects
+     * @param before before JsonNode
+     * @param after after JsonNode
+     * @return Array of added id's
+     */
     @SneakyThrows
     private JsonNode findAdded(JsonNode before, JsonNode after){
         ArrayNode array = mapper.createArrayNode();
@@ -73,6 +114,12 @@ public class Parser {
         return array;
     }
 
+    /**
+     * Method to find id's of removed objects
+     * @param before before JsonNode
+     * @param after after JsonNode
+     * @return Array of removed id's
+     */
     @SneakyThrows
     private JsonNode findRemoved(JsonNode before, JsonNode after){
         ArrayNode array = mapper.createArrayNode();
@@ -91,6 +138,12 @@ public class Parser {
         return array;
     }
 
+    /**
+     * Method to compare fields common for both objects
+     * @param before before JsonNode
+     * @param after after JsonNode
+     * @return Array of id's for objects with modified fields
+     */
     @SneakyThrows
     private JsonNode compareCommon(JsonNode before, JsonNode after) {
         ArrayNode array = mapper.createArrayNode();
@@ -126,6 +179,21 @@ public class Parser {
             }
         }
         return array;
+    }
+
+    /**
+     * Method to convert date from UTC to CEST/CET format. Now works inappropriate: does not offset hours in output string
+     * @param date String value of UTC date/time
+     * @return String of input UTC date/time converted to CEST/CET format.
+     */
+    private String convertDate(String date){
+        DateTimeFormatter input = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
+        DateTimeFormatter output = new DateTimeFormatterBuilder()
+                .append(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"))
+                .appendOffset("+HH", "+00")
+                .toFormatter();
+        ZonedDateTime zonedDateTime = ZonedDateTime.of(LocalDateTime.parse(date, input), ZoneId.of("Europe/Oslo"));
+        return zonedDateTime.format(output);
     }
 
 
